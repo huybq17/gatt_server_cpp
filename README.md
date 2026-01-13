@@ -1,4 +1,4 @@
-# Pi GATT Server (C++ / BlueZ / D-Bus)
+# GATT Server (C++ / BlueZ / D-Bus)
 
 Standalone BLE **GATT Server** for Raspberry Pi 4 using **BlueZ** over **system D-Bus**, written in **C++** with **sdbus-c++**.
 
