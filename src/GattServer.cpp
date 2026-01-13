@@ -158,7 +158,7 @@ void GattServer::start()
     if (!err.empty())
         throw std::runtime_error(err);
 
-    std::cout << "Started Pi GATT server: LocalName='" << localName_ << "'" << std::endl;
+    std::cout << "Started GATT server: LocalName='" << localName_ << "'" << std::endl;
     std::cout << "Service UUID: " << serviceUuid_ << std::endl;
     std::cout << "Char UUID   : " << charUuid_ << " (read/write/notify)" << std::endl;
 }
@@ -217,15 +217,28 @@ void GattServer::exportGattCharacteristic()
     charObj_ = sdbus::createObject(*conn_, charPath_);
 
     auto readValue = [this](const DictSV& /*options*/) -> std::vector<std::uint8_t> {
+        std::cout << "[BLE] ReadValue: Client is reading characteristic value. Data: [";
+        for (size_t i = 0; i < value_.size(); ++i) {
+            std::cout << "0x" << std::hex << static_cast<int>(value_[i]);
+            if (i < value_.size() - 1) std::cout << ", ";
+        }
+        std::cout << std::dec << "]" << std::endl;
         return value_;
     };
 
     auto writeValue = [this](const std::vector<std::uint8_t>& value, const DictSV& /*options*/) {
+        std::cout << "[BLE] WriteValue: Client wrote " << value.size() << " bytes. Data: [";
+        for (size_t i = 0; i < value.size(); ++i) {
+            std::cout << "0x" << std::hex << static_cast<int>(value[i]);
+            if (i < value.size() - 1) std::cout << ", ";
+        }
+        std::cout << std::dec << "]" << std::endl;
         value_ = value;
         notifyValueChanged();
     };
 
     auto startNotify = [this]() {
+        std::cout << "[BLE] StartNotify: Client subscribed to notifications" << std::endl;
         const bool wasNotifying = notifying_.exchange(true);
         if (!wasNotifying && charObj_) {
             charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});
@@ -234,6 +247,7 @@ void GattServer::exportGattCharacteristic()
     };
 
     auto stopNotify = [this]() {
+        std::cout << "[BLE] StopNotify: Client unsubscribed from notifications" << std::endl;
         const bool wasNotifying = notifying_.exchange(false);
         if (wasNotifying && charObj_) {
             charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});

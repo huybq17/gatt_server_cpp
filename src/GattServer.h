@@ -52,5 +52,5 @@ private:
 
     const std::string serviceUuid_{"12345678-1234-5678-1234-56789abcdef0"};
     const std::string charUuid_{"12345678-1234-5678-1234-56789abcdef1"};
-    const std::string localName_{"PiGattServer"};
+    const std::string localName_{"GattServer"};
 };
