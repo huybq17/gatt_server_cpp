@@ -4,6 +4,10 @@
 #include <stdexcept>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
+#include <fstream>
+#include <chrono>
+#include <sstream>
 
 namespace {
 constexpr const char* kBluezService = "org.bluez";
@@ -161,6 +165,9 @@ void GattServer::start()
     std::cout << "Started GATT server: LocalName='" << localName_ << "'" << std::endl;
     std::cout << "Service UUID: " << serviceUuid_ << std::endl;
     std::cout << "Char UUID   : " << charUuid_ << " (read/write/notify)" << std::endl;
+
+    // start CPU temperature sampling thread
+    startTemperatureThread();
 }
 
 void GattServer::stop()
@@ -178,12 +185,70 @@ void GattServer::stop()
         try { conn_->leaveEventLoop(); } catch (...) {}
     }
 
+    // stop temperature sampling thread
+    try { stopTemperatureThread(); } catch (...) {}
+
     advObj_.reset();
     charObj_.reset();
     serviceObj_.reset();
     appObj_.reset();
     adapterProxy_.reset();
     conn_.reset();
+}
+
+int GattServer::readCpuTemperatureMilliC()
+{
+    std::ifstream f("/sys/class/thermal/thermal_zone0/temp");
+    if (!f)
+        return -1;
+    int milli = -1;
+    f >> milli;
+    if (!f)
+        return -1;
+    return milli;
+}
+
+void GattServer::startTemperatureThread()
+{
+    if (tempThreadRunning_.exchange(true))
+        return;
+
+    tempThread_ = std::thread([this]() {
+        int lastMilli = -1;
+        while (tempThreadRunning_.load()) {
+            int milli = readCpuTemperatureMilliC();
+            if (milli != -1 && milli != lastMilli) {
+                lastMilli = milli;
+
+                // Encode as IEEE-11073 32-bit FLOAT for Temperature Measurement (UUID 0x2A1C)
+                // Format: [Flags (1 byte)] [Temp (4 bytes: 24-bit mantissa + 8-bit exponent)]
+                // We'll represent temperature in millidegrees Celsius with exponent -3.
+                uint8_t flags = 0x00; // Celsius, no timestamp, no temperature type
+                int32_t mantissa = static_cast<int32_t>(milli); // e.g., 36125 for 36.125 C
+                int8_t exponent = -3;
+
+                std::vector<std::uint8_t> data(5);
+                data[0] = flags;
+                uint32_t mant = static_cast<uint32_t>(mantissa & 0xFFFFFF);
+                data[1] = static_cast<std::uint8_t>(mant & 0xFF);
+                data[2] = static_cast<std::uint8_t>((mant >> 8) & 0xFF);
+                data[3] = static_cast<std::uint8_t>((mant >> 16) & 0xFF);
+                data[4] = static_cast<std::uint8_t>(static_cast<uint8_t>(exponent));
+
+                value_ = data;
+                notifyValueChanged();
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
+    });
+}
+
+void GattServer::stopTemperatureThread()
+{
+    tempThreadRunning_.store(false);
+    if (tempThread_.joinable())
+        tempThread_.join();
 }
 
 void GattServer::exportApplicationObjectManager()
