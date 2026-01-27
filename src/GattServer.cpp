@@ -199,11 +199,11 @@ void GattServer::stop()
 int GattServer::readCpuTemperatureMilliC()
 {
     std::ifstream f("/sys/class/thermal/thermal_zone0/temp");
-    if (!f)
+    if (!f.is_open())
         return -1;
     int milli = -1;
     f >> milli;
-    if (!f)
+    if (f.fail())
         return -1;
     return milli;
 }

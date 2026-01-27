@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi - CPU Temperature</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 300px;
+        }
+        h1 {
+            color: #333;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
+        .temp-display {
+            font-size: 4rem;
+            font-weight: bold;
+            color: #2196F3;
+            transition: color 0.5s;
+        }
+        .unit {
+            font-size: 1.5rem;
+            color: #666;
+            vertical-align: super;
+        }
+        .status {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #888;
+        }
+        .hot { color: #f44336; }
+        .warm { color: #ff9800; }
+        .cool { color: #2196F3; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>CPU Temperature</h1>
+        <div id="temp-value" class="temp-display">--<span class="unit">°C</span></div>
+        <div id="connection-status" class="status">Connecting to sensor...</div>
+    </div>
+
+    <script>
+        const socket = io();
+        const tempDisplay = document.getElementById('temp-value');
+        const statusDisplay = document.getElementById('connection-status');
+
+        socket.on('connect', () => {
+            statusDisplay.textContent = 'Synced with Sensor';
+            statusDisplay.style.color = '#4caf50';
+        });
+
+        socket.on('disconnect', () => {
+            statusDisplay.textContent = 'Connection Lost';
+            statusDisplay.style.color = '#f44336';
+        });
+
+        socket.on('temp_update', (data) => {
+            const temp = data.temperature;
+            // Format to 3 decimal places to match BLE precision
+            tempDisplay.innerHTML = `${temp.toFixed(3)}<span class="unit">°C</span>`;
+            
+            // Dynamic color change based on temp
+            tempDisplay.classList.remove('hot', 'warm', 'cool');
+            if (temp > 60) {
+                tempDisplay.classList.add('hot');
+            } else if (temp > 45) {
+                tempDisplay.classList.add('warm');
+            } else {
+                tempDisplay.classList.add('cool');
+            }
+        });
+    </script>
+</body>
+</html>
