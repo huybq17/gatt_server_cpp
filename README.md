@@ -30,7 +30,8 @@ cmake --build build -j
 ```
 
 Binary:
-- `./build/PiGattServer`
+
+`./build/PiGattServer`
 
 ## Run
 
@@ -39,6 +40,7 @@ If you run without `sudo`, BlueZ registration may appear to “hang” and event
 
 ```bash
 sudo ./build/PiGattServer
+python3 web/app.py
 ```
 
 Stop with `Ctrl+C`.
