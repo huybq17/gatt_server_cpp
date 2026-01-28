@@ -1,4 +1,5 @@
 #include "GattServer.h"
+#include "Logger.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -72,26 +73,32 @@ void GattServer::start()
     if (started_.exchange(true))
         return;
 
-    conn_ = sdbus::createSystemBusConnection();
+    try {
+        conn_ = sdbus::createSystemBusConnection();
+        LOG_DEBUG("System D-Bus connection established");
+    } catch (const sdbus::Error& e) {
+        LOG_ERROR("Failed to connect to system D-Bus: [", e.getName(), "] ", e.getMessage());
+        throw;
+    }
 
     try {
-        std::cout << "Export ObjectManager..." << std::endl;
+        LOG_INFO("Export ObjectManager...");
         exportApplicationObjectManager();
-        std::cout << "OK" << std::endl;
+        LOG_INFO("ObjectManager exported successfully");
 
-        std::cout << "Export GattService1..." << std::endl;
+        LOG_INFO("Export GattService1...");
         exportGattService();
-        std::cout << "OK" << std::endl;
+        LOG_INFO("GattService1 exported successfully");
 
-        std::cout << "Export GattCharacteristic1..." << std::endl;
+        LOG_INFO("Export GattCharacteristic1...");
         exportGattCharacteristic();
-        std::cout << "OK" << std::endl;
+        LOG_INFO("GattCharacteristic1 exported successfully");
 
-        std::cout << "Export LEAdvertisement1..." << std::endl;
+        LOG_INFO("Export LEAdvertisement1...");
         exportAdvertisement();
-        std::cout << "OK" << std::endl;
+        LOG_INFO("LEAdvertisement1 exported successfully");
     } catch (const std::exception& e) {
-        std::cerr << "Export failed: " << e.what() << std::endl;
+        LOG_ERROR("Export failed: ", e.what());
         throw;
     }
 
@@ -114,10 +121,13 @@ void GattServer::start()
     std::string err;
 
     auto onError = [&](const std::string& where, const std::optional<sdbus::Error>& e) {
-        if (e)
+        if (e) {
             err = where + ": [" + e->getName() + "] " + e->getMessage();
-        else
+            LOG_ERROR("D-Bus error in ", where, ": [", e->getName(), "] ", e->getMessage());
+        } else {
             err = where + ": unknown error";
+            LOG_ERROR("Unknown error in ", where);
+        }
     };
 
     // 1) Register GATT application
@@ -162,9 +172,9 @@ void GattServer::start()
     if (!err.empty())
         throw std::runtime_error(err);
 
-    std::cout << "Started GATT server: LocalName='" << localName_ << "'" << std::endl;
-    std::cout << "Service UUID: " << serviceUuid_ << std::endl;
-    std::cout << "Char UUID   : " << charUuid_ << " (read/write/notify)" << std::endl;
+    LOG_INFO("Started GATT server: LocalName='", localName_, "'");
+    LOG_INFO("Service UUID: ", serviceUuid_);
+    LOG_INFO("Char UUID   : ", charUuid_, " (read/write/notify)");
 
     // start CPU temperature sampling thread
     startTemperatureThread();
@@ -178,7 +188,7 @@ void GattServer::stop()
     try {
         unregisterFromBlueZ();
     } catch (const std::exception& e) {
-        std::cerr << "Unregister warning: " << e.what() << std::endl;
+        LOG_WARNING("Unregister warning: ", e.what());
     }
 
     if (conn_) {
@@ -199,12 +209,16 @@ void GattServer::stop()
 int GattServer::readCpuTemperatureMilliC()
 {
     std::ifstream f("/sys/class/thermal/thermal_zone0/temp");
-    if (!f.is_open())
+    if (!f.is_open()) {
+        LOG_WARNING("Failed to open /sys/class/thermal/thermal_zone0/temp");
         return -1;
+    }
     int milli = -1;
     f >> milli;
-    if (f.fail())
+    if (f.fail()) {
+        LOG_WARNING("Failed to read temperature value from thermal zone");
         return -1;
+    }
     return milli;
 }
 
@@ -282,28 +296,32 @@ void GattServer::exportGattCharacteristic()
     charObj_ = sdbus::createObject(*conn_, charPath_);
 
     auto readValue = [this](const DictSV& /*options*/) -> std::vector<std::uint8_t> {
-        std::cout << "[BLE] ReadValue: Client is reading characteristic value. Data: [";
+        std::ostringstream oss;
+        oss << "[BLE] ReadValue: Client is reading characteristic value. Data: [";
         for (size_t i = 0; i < value_.size(); ++i) {
-            std::cout << "0x" << std::hex << static_cast<int>(value_[i]);
-            if (i < value_.size() - 1) std::cout << ", ";
+            oss << "0x" << std::hex << static_cast<int>(value_[i]);
+            if (i < value_.size() - 1) oss << ", ";
         }
-        std::cout << std::dec << "]" << std::endl;
+        oss << std::dec << "]";
+        LOG_DEBUG(oss.str());
         return value_;
     };
 
     auto writeValue = [this](const std::vector<std::uint8_t>& value, const DictSV& /*options*/) {
-        std::cout << "[BLE] WriteValue: Client wrote " << value.size() << " bytes. Data: [";
+        std::ostringstream oss;
+        oss << "[BLE] WriteValue: Client wrote " << value.size() << " bytes. Data: [";
         for (size_t i = 0; i < value.size(); ++i) {
-            std::cout << "0x" << std::hex << static_cast<int>(value[i]);
-            if (i < value.size() - 1) std::cout << ", ";
+            oss << "0x" << std::hex << static_cast<int>(value[i]);
+            if (i < value.size() - 1) oss << ", ";
         }
-        std::cout << std::dec << "]" << std::endl;
+        oss << std::dec << "]";
+        LOG_DEBUG(oss.str());
         value_ = value;
         notifyValueChanged();
     };
 
     auto startNotify = [this]() {
-        std::cout << "[BLE] StartNotify: Client subscribed to notifications" << std::endl;
+        LOG_INFO("[BLE] StartNotify: Client subscribed to notifications");
         const bool wasNotifying = notifying_.exchange(true);
         if (!wasNotifying && charObj_) {
             charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});
@@ -312,7 +330,7 @@ void GattServer::exportGattCharacteristic()
     };
 
     auto stopNotify = [this]() {
-        std::cout << "[BLE] StopNotify: Client unsubscribed from notifications" << std::endl;
+        LOG_INFO("[BLE] StopNotify: Client unsubscribed from notifications");
         const bool wasNotifying = notifying_.exchange(false);
         if (wasNotifying && charObj_) {
             charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});
@@ -345,7 +363,7 @@ void GattServer::exportAdvertisement()
     advObj_ = sdbus::createObject(*conn_, advPath_);
 
     auto release = []() {
-        std::cout << "Advertisement released" << std::endl;
+        LOG_INFO("Advertisement released");
     };
 
     auto getType = []() { return std::string{"peripheral"}; };
@@ -364,21 +382,32 @@ void GattServer::exportAdvertisement()
 
 void GattServer::ensureAdapterPoweredOn()
 {
-    if (!adapterProxy_)
+    if (!adapterProxy_) {
+        LOG_ERROR("Adapter proxy not initialized");
         throw std::runtime_error("Adapter proxy not initialized");
+    }
 
-    sdbus::Variant powered;
-    adapterProxy_->callMethod("Get")
-        .onInterface(kIfaceProps)
-        .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered})
-        .storeResultsTo(powered);
-
-    if (!(bool)powered)
-    {
-        adapterProxy_->callMethod("Set")
+    try {
+        sdbus::Variant powered;
+        adapterProxy_->callMethod("Get")
             .onInterface(kIfaceProps)
-            .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered}, sdbus::Variant(true))
-            .storeResultsTo();
+            .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered})
+            .storeResultsTo(powered);
+
+        if (!(bool)powered)
+        {
+            LOG_INFO("Bluetooth adapter is off, powering on...");
+            adapterProxy_->callMethod("Set")
+                .onInterface(kIfaceProps)
+                .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered}, sdbus::Variant(true))
+                .storeResultsTo();
+            LOG_INFO("Bluetooth adapter powered on successfully");
+        } else {
+            LOG_DEBUG("Bluetooth adapter is already powered on");
+        }
+    } catch (const sdbus::Error& e) {
+        LOG_ERROR("Failed to check/set adapter power state: [", e.getName(), "] ", e.getMessage());
+        throw;
     }
 }
 
@@ -399,15 +428,19 @@ void GattServer::registerWithBlueZ()
 
 void GattServer::unregisterFromBlueZ()
 {
-    if (!adapterProxy_)
+    if (!adapterProxy_) {
+        LOG_DEBUG("unregisterFromBlueZ: adapterProxy_ is null, skipping");
         return;
+    }
 
     try {
         adapterProxy_->callMethod(kMethodUnregisterAdv)
             .onInterface(kIfaceAdvMgr)
             .withArguments(advPath_)
             .storeResultsTo();
-    } catch (const sdbus::Error&) {
+        LOG_DEBUG("Advertisement unregistered successfully");
+    } catch (const sdbus::Error& e) {
+        LOG_WARNING("Failed to unregister advertisement: [", e.getName(), "] ", e.getMessage());
     }
 
     try {
@@ -415,7 +448,9 @@ void GattServer::unregisterFromBlueZ()
             .onInterface(kIfaceGattMgr)
             .withArguments(appPath_)
             .storeResultsTo();
-    } catch (const sdbus::Error&) {
+        LOG_DEBUG("GATT application unregistered successfully");
+    } catch (const sdbus::Error& e) {
+        LOG_WARNING("Failed to unregister GATT application: [", e.getName(), "] ", e.getMessage());
     }
 }
 
@@ -427,6 +462,6 @@ void GattServer::notifyValueChanged()
     try {
         charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropValue}});
     } catch (const std::exception& e) {
-        std::cerr << "PropertiesChanged(Value) warning: " << e.what() << std::endl;
+        LOG_WARNING("PropertiesChanged(Value) failed: ", e.what());
     }
 }
