@@ -70,6 +70,12 @@ GattServer::~GattServer()
 
 void GattServer::start()
 {
+    std::mutex m;
+    std::condition_variable cv;
+    bool gattOk = false;
+    bool advOk = false;
+    std::string err;
+
     if (started_.exchange(true))
         return;
 
@@ -113,12 +119,6 @@ void GattServer::start()
     // Important: BlueZ calls back into our app (GetManagedObjects, property getters) during RegisterApplication.
     // Doing a synchronous RegisterApplication from the same thread can deadlock. Run the loop async and register async.
     conn_->enterEventLoopAsync();
-
-    std::mutex m;
-    std::condition_variable cv;
-    bool gattOk = false;
-    bool advOk = false;
-    std::string err;
 
     auto onError = [&](const std::string& where, const std::optional<sdbus::Error>& e) {
         if (e) {

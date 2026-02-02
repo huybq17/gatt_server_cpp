@@ -31,7 +31,7 @@ cmake --build build -j
 
 Binary:
 
-`./build/PiGattServer`
+`./build/GattServer`
 
 ## Run
 
@@ -39,8 +39,12 @@ Most distros require elevated privileges (Polkit policy) for registering GATT/ad
 If you run without `sudo`, BlueZ registration may appear to “hang” and eventually time out.
 
 ```bash
-sudo ./build/PiGattServer
-python3 web/app.py
+sudo ./build/GattServer
+```
+Starting Web Server on http://127.0.0.1:5000
+
+```bash
+/home/pi/gatt_server_cpp/web/venv/bin/python web/app.py
 ```
 
 Stop with `Ctrl+C`.
