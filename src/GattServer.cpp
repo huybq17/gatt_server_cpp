@@ -19,45 +19,165 @@ constexpr const char* kIfaceObjMgr = "org.freedesktop.DBus.ObjectManager";
 constexpr const char* kIfaceAdapter = "org.bluez.Adapter1";
 constexpr const char* kIfaceGattMgr = "org.bluez.GattManager1";
 constexpr const char* kIfaceAdvMgr = "org.bluez.LEAdvertisingManager1";
-
-constexpr const char* kIfaceGattService = "org.bluez.GattService1";
-constexpr const char* kIfaceGattChar = "org.bluez.GattCharacteristic1";
-constexpr const char* kIfaceAdv = "org.bluez.LEAdvertisement1";
+constexpr const char* kIfaceMedia = "org.bluez.Media1";
 
 constexpr const char* kMethodRegisterApp = "RegisterApplication";
 constexpr const char* kMethodUnregisterApp = "UnregisterApplication";
 constexpr const char* kMethodRegisterAdv = "RegisterAdvertisement";
 constexpr const char* kMethodUnregisterAdv = "UnregisterAdvertisement";
-
-constexpr const char* kMethodReadValue = "ReadValue";
-constexpr const char* kMethodWriteValue = "WriteValue";
-constexpr const char* kMethodStartNotify = "StartNotify";
-constexpr const char* kMethodStopNotify = "StopNotify";
-constexpr const char* kMethodRelease = "Release";
+constexpr const char* kMethodRegisterEndpoint = "RegisterEndpoint";
+constexpr const char* kMethodUnregisterEndpoint = "UnregisterEndpoint";
 
 constexpr const char* kPropPowered = "Powered";
 
-constexpr const char* kPropUUID = "UUID";
-constexpr const char* kPropPrimary = "Primary";
-constexpr const char* kPropIncludes = "Includes";
-constexpr const char* kPropCharacteristics = "Characteristics";
-
-constexpr const char* kPropService = "Service";
-constexpr const char* kPropFlags = "Flags";
-constexpr const char* kPropValue = "Value";
-constexpr const char* kPropNotifying = "Notifying";
-constexpr const char* kPropDescriptors = "Descriptors";
-
-constexpr const char* kPropType = "Type";
-constexpr const char* kPropServiceUUIDs = "ServiceUUIDs";
-constexpr const char* kPropLocalName = "LocalName";
-constexpr const char* kPropDiscoverable = "Discoverable";
+constexpr const char* kUuidA2dpSink = "0000110B-0000-1000-8000-00805F9B34FB";
+constexpr uint8_t kCodecSbc = 0x00;
 
 } // namespace
 
-GattServer::GattServer()
+// ===========================================
+// Temperature Service Implementation
+// ===========================================
+TemperatureService::TemperatureService(sdbus::IConnection& connection, std::string objectPath, std::string uuid, bool primary)
+    : AdaptorInterfaces(connection, sdbus::ObjectPath(std::move(objectPath))), uuid_(std::move(uuid)), primary_(primary)
+{
+    registerAdaptor();
+}
+
+TemperatureService::~TemperatureService()
+{
+    unregisterAdaptor();
+}
+
+// ===========================================
+// Temperature Characteristic Implementation
+// ===========================================
+TemperatureCharacteristic::TemperatureCharacteristic(sdbus::IConnection& connection, std::string objectPath, std::string uuid, std::string servicePath)
+    : AdaptorInterfaces(connection, sdbus::ObjectPath(std::move(objectPath))), uuid_(std::move(uuid)), servicePath_(std::move(servicePath))
 {
     value_ = {0x00};
+    registerAdaptor();
+}
+
+TemperatureCharacteristic::~TemperatureCharacteristic()
+{
+    unregisterAdaptor();
+}
+
+std::vector<uint8_t> TemperatureCharacteristic::ReadValue(const std::map<std::string, sdbus::Variant>&)
+{
+    std::ostringstream oss;
+    oss << "[BLE] ReadValue";
+    LOG_DEBUG(oss.str());
+    return value_;
+}
+
+void TemperatureCharacteristic::WriteValue(const std::vector<uint8_t>& value, const std::map<std::string, sdbus::Variant>&)
+{
+    std::ostringstream oss;
+    oss << "[BLE] WriteValue: " << value.size() << " bytes";
+    LOG_DEBUG(oss.str());
+    value_ = value;
+    
+    // Emit signal
+    // emitPropertiesChangedSignal is available via ObjectHolder -> IObject
+    getObject().emitPropertiesChangedSignal(sdbus::InterfaceName(org::bluez::GattCharacteristic1_adaptor::INTERFACE_NAME), {sdbus::PropertyName("Value")});
+}
+
+void TemperatureCharacteristic::StartNotify()
+{
+    LOG_INFO("[BLE] StartNotify");
+    notifying_ = true;
+    getObject().emitPropertiesChangedSignal(sdbus::InterfaceName(org::bluez::GattCharacteristic1_adaptor::INTERFACE_NAME), {sdbus::PropertyName("Notifying")});
+}
+
+void TemperatureCharacteristic::StopNotify()
+{
+    LOG_INFO("[BLE] StopNotify");
+    notifying_ = false;
+    getObject().emitPropertiesChangedSignal(sdbus::InterfaceName(org::bluez::GattCharacteristic1_adaptor::INTERFACE_NAME), {sdbus::PropertyName("Notifying")});
+}
+
+std::vector<uint8_t> TemperatureCharacteristic::Value()
+{
+    return value_;
+}
+
+std::vector<std::string> TemperatureCharacteristic::Flags()
+{
+    return {"read", "write", "notify"};
+}
+
+void TemperatureCharacteristic::updateValue(const std::vector<uint8_t>& newValue)
+{
+    value_ = newValue;
+    if (notifying_) {
+        getObject().emitPropertiesChangedSignal(sdbus::InterfaceName(org::bluez::GattCharacteristic1_adaptor::INTERFACE_NAME), {sdbus::PropertyName("Value")});
+    }
+}
+
+// ===========================================
+// Advertisement Implementation
+// ===========================================
+OurAdvertisement::OurAdvertisement(sdbus::IConnection& connection, std::string objectPath, std::string type, std::string localName, std::string serviceUuid)
+    : AdaptorInterfaces(connection, sdbus::ObjectPath(std::move(objectPath))), type_(std::move(type)), localName_(std::move(localName)), serviceUuid_(std::move(serviceUuid))
+{
+    registerAdaptor();
+}
+
+OurAdvertisement::~OurAdvertisement()
+{
+    unregisterAdaptor();
+}
+
+void OurAdvertisement::Release()
+{
+    LOG_INFO("Advertisement released");
+}
+
+// ===========================================
+// Media Endpoint Implementation
+// ===========================================
+A2dpEndpoint::A2dpEndpoint(sdbus::IConnection& connection, std::string objectPath)
+    : AdaptorInterfaces(connection, sdbus::ObjectPath(std::move(objectPath)))
+{
+    registerAdaptor();
+}
+
+A2dpEndpoint::~A2dpEndpoint()
+{
+    unregisterAdaptor();
+}
+
+void A2dpEndpoint::SetConfiguration(const sdbus::ObjectPath& transport, const std::map<std::string, sdbus::Variant>& properties)
+{
+    LOG_INFO("MediaEndpoint: SetConfiguration called via Adaptor");
+    LOG_INFO("  Transport: ", transport);
+}
+
+std::vector<uint8_t> A2dpEndpoint::SelectConfiguration(const std::vector<uint8_t>& capabilities)
+{
+    LOG_INFO("MediaEndpoint: SelectConfiguration called via Adaptor");
+    return capabilities;
+}
+
+void A2dpEndpoint::ClearConfiguration(const sdbus::ObjectPath& transport)
+{
+    LOG_INFO("MediaEndpoint: ClearConfiguration called via Adaptor");
+}
+
+void A2dpEndpoint::Release()
+{
+    LOG_INFO("MediaEndpoint: Release called via Adaptor");
+}
+
+
+// ===========================================
+// GattServer Implementation
+// ===========================================
+
+GattServer::GattServer()
+{
 }
 
 GattServer::~GattServer()
@@ -74,6 +194,7 @@ void GattServer::start()
     std::condition_variable cv;
     bool gattOk = false;
     bool advOk = false;
+    bool endpointOk = false;
     std::string err;
 
     if (started_.exchange(true))
@@ -90,34 +211,22 @@ void GattServer::start()
     try {
         LOG_INFO("Export ObjectManager...");
         exportApplicationObjectManager();
-        LOG_INFO("ObjectManager exported successfully");
-
-        LOG_INFO("Export GattService1...");
-        exportGattService();
-        LOG_INFO("GattService1 exported successfully");
-
-        LOG_INFO("Export GattCharacteristic1...");
-        exportGattCharacteristic();
-        LOG_INFO("GattCharacteristic1 exported successfully");
-
-        LOG_INFO("Export LEAdvertisement1...");
-        exportAdvertisement();
-        LOG_INFO("LEAdvertisement1 exported successfully");
+        
+        LOG_INFO("Creating Service Adaptors...");
+        serviceObj_ = std::make_unique<TemperatureService>(*conn_, servicePath_, serviceUuid_, true);
+        charObj_ = std::make_unique<TemperatureCharacteristic>(*conn_, charPath_, charUuid_, servicePath_);
+        advObj_ = std::make_unique<OurAdvertisement>(*conn_, advPath_, "peripheral", localName_, serviceUuid_);
+        endpointObj_ = std::make_unique<A2dpEndpoint>(*conn_, endpointPath_);
+        
+        LOG_INFO("Adaptors exported successfully");
     } catch (const std::exception& e) {
         LOG_ERROR("Export failed: ", e.what());
         throw;
     }
 
-    // BlueZ will call back into our application (ObjectManager + properties/methods) during registration.
-    // We must therefore run the connection event loop before calling RegisterApplication/RegisterAdvertisement.
     conn_->enterEventLoopAsync();
-
     adapterProxy_ = sdbus::createProxy(*conn_, sdbus::ServiceName{kBluezService}, adapterPath_);
-
     ensureAdapterPoweredOn();
-
-    // Important: BlueZ calls back into our app (GetManagedObjects, property getters) during RegisterApplication.
-    // Doing a synchronous RegisterApplication from the same thread can deadlock. Run the loop async and register async.
     conn_->enterEventLoopAsync();
 
     auto onError = [&](const std::string& where, const std::optional<sdbus::Error>& e) {
@@ -136,11 +245,7 @@ void GattServer::start()
         .withArguments(appPath_, DictSV{})
         .uponReplyInvoke([&](std::optional<sdbus::Error> e) {
             std::lock_guard<std::mutex> lk(m);
-            if (e) {
-                onError("RegisterApplication", e);
-            } else {
-                gattOk = true;
-            }
+            if (e) onError("RegisterApplication", e); else gattOk = true;
             cv.notify_all();
         });
 
@@ -148,8 +253,7 @@ void GattServer::start()
         std::unique_lock<std::mutex> lk(m);
         cv.wait_for(lk, std::chrono::seconds(10), [&]{ return gattOk || !err.empty(); });
     }
-    if (!err.empty())
-        throw std::runtime_error(err);
+    if (!err.empty()) throw std::runtime_error(err);
 
     // 2) Register Advertisement
     adapterProxy_->callMethodAsync(kMethodRegisterAdv)
@@ -157,11 +261,7 @@ void GattServer::start()
         .withArguments(advPath_, DictSV{})
         .uponReplyInvoke([&](std::optional<sdbus::Error> e) {
             std::lock_guard<std::mutex> lk(m);
-            if (e) {
-                onError("RegisterAdvertisement", e);
-            } else {
-                advOk = true;
-            }
+            if (e) onError("RegisterAdvertisement", e); else advOk = true;
             cv.notify_all();
         });
 
@@ -169,14 +269,29 @@ void GattServer::start()
         std::unique_lock<std::mutex> lk(m);
         cv.wait_for(lk, std::chrono::seconds(10), [&]{ return advOk || !err.empty(); });
     }
-    if (!err.empty())
-        throw std::runtime_error(err);
+    if (!err.empty()) throw std::runtime_error(err);
+    
+    // 3) Register Media Endpoint
+    DictSV endpointProps;
+    endpointProps["UUID"] = sdbus::Variant(std::string(kUuidA2dpSink));
+    endpointProps["Codec"] = sdbus::Variant(kCodecSbc);
+    endpointProps["Capabilities"] = sdbus::Variant(std::vector<uint8_t>{0x3F, 0xFF, 0x02, 0xFF}); 
 
-    LOG_INFO("Started GATT server: LocalName='", localName_, "'");
-    LOG_INFO("Service UUID: ", serviceUuid_);
-    LOG_INFO("Char UUID   : ", charUuid_, " (read/write/notify)");
+    adapterProxy_->callMethodAsync(kMethodRegisterEndpoint)
+        .onInterface(kIfaceMedia)
+        .withArguments(endpointPath_, endpointProps)
+        .uponReplyInvoke([&](std::optional<sdbus::Error> e) {
+            std::lock_guard<std::mutex> lk(m);
+            if (e) onError("RegisterEndpoint", e); else endpointOk = true;
+            cv.notify_all();
+        });
 
-    // start CPU temperature sampling thread
+    {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait_for(lk, std::chrono::seconds(10), [&]{ return endpointOk || !err.empty(); });
+    }
+    if (!err.empty()) throw std::runtime_error(err);
+
     startTemperatureThread();
 }
 
@@ -185,22 +300,18 @@ void GattServer::stop()
     if (!started_.exchange(false))
         return;
 
-    try {
-        unregisterFromBlueZ();
-    } catch (const std::exception& e) {
-        LOG_WARNING("Unregister warning: ", e.what());
-    }
-
+    try { unregisterFromBlueZ(); } catch (...) {}
     if (conn_) {
         try { conn_->leaveEventLoop(); } catch (...) {}
     }
-
-    // stop temperature sampling thread
     try { stopTemperatureThread(); } catch (...) {}
 
+    // Destructors of adaptors handle unregisterAdaptor()
+    endpointObj_.reset();
     advObj_.reset();
     charObj_.reset();
     serviceObj_.reset();
+    
     appObj_.reset();
     adapterProxy_.reset();
     conn_.reset();
@@ -208,12 +319,13 @@ void GattServer::stop()
 
 int GattServer::readCpuTemperatureMilliC()
 {
+    int milli = -1;
     std::ifstream f("/sys/class/thermal/thermal_zone0/temp");
     if (!f.is_open()) {
         LOG_WARNING("Failed to open /sys/class/thermal/thermal_zone0/temp");
         return -1;
     }
-    int milli = -1;
+
     f >> milli;
     if (f.fail()) {
         LOG_WARNING("Failed to read temperature value from thermal zone");
@@ -234,11 +346,9 @@ void GattServer::startTemperatureThread()
             if (milli != -1 && milli != lastMilli) {
                 lastMilli = milli;
 
-                // Encode as IEEE-11073 32-bit FLOAT for Temperature Measurement (UUID 0x2A1C)
-                // Format: [Flags (1 byte)] [Temp (4 bytes: 24-bit mantissa + 8-bit exponent)]
-                // We'll represent temperature in millidegrees Celsius with exponent -3.
-                uint8_t flags = 0x00; // Celsius, no timestamp, no temperature type
-                int32_t mantissa = static_cast<int32_t>(milli); // e.g., 36125 for 36.125 C
+                // Simple IEEE-11073 conversion
+                uint8_t flags = 0x00;
+                int32_t mantissa = static_cast<int32_t>(milli);
                 int8_t exponent = -3;
 
                 std::vector<std::uint8_t> data(5);
@@ -249,10 +359,11 @@ void GattServer::startTemperatureThread()
                 data[3] = static_cast<std::uint8_t>((mant >> 16) & 0xFF);
                 data[4] = static_cast<std::uint8_t>(static_cast<uint8_t>(exponent));
 
-                value_ = data;
-                notifyValueChanged();
+                // Update via Adaptor Access
+                if (charObj_) {
+                    charObj_->updateValue(data);
+                }
             }
-
             std::this_thread::sleep_for(std::chrono::seconds(2));
         }
     });
@@ -268,200 +379,32 @@ void GattServer::stopTemperatureThread()
 void GattServer::exportApplicationObjectManager()
 {
     appObj_ = sdbus::createObject(*conn_, appPath_);
-
-    // Use sd-bus built-in ObjectManager implementation (GetManagedObjects + tracking).
-    // BlueZ's GattManager1.RegisterApplication expects an ObjectManager at the app path.
     appObj_->addObjectManager();
-}
-
-void GattServer::exportGattService()
-{
-    serviceObj_ = sdbus::createObject(*conn_, servicePath_);
-
-    auto getUuid = [this]() { return serviceUuid_; };
-    auto getPrimary = []() { return true; };
-    auto getIncludes = []() { return std::vector<sdbus::ObjectPath>{}; };
-    auto getCharacteristics = [this]() { return std::vector<sdbus::ObjectPath>{charPath_}; };
-
-    serviceObj_->addVTable(
-                sdbus::registerProperty(kPropUUID).withGetter(getUuid),
-                sdbus::registerProperty(kPropPrimary).withGetter(getPrimary),
-                sdbus::registerProperty(kPropIncludes).withGetter(getIncludes),
-                sdbus::registerProperty(kPropCharacteristics).withGetter(getCharacteristics))
-        .forInterface(kIfaceGattService);
-}
-
-void GattServer::exportGattCharacteristic()
-{
-    charObj_ = sdbus::createObject(*conn_, charPath_);
-
-    auto readValue = [this](const DictSV& /*options*/) -> std::vector<std::uint8_t> {
-        std::ostringstream oss;
-        oss << "[BLE] ReadValue: Client is reading characteristic value. Data: [";
-        for (size_t i = 0; i < value_.size(); ++i) {
-            oss << "0x" << std::hex << static_cast<int>(value_[i]);
-            if (i < value_.size() - 1) oss << ", ";
-        }
-        oss << std::dec << "]";
-        LOG_DEBUG(oss.str());
-        return value_;
-    };
-
-    auto writeValue = [this](const std::vector<std::uint8_t>& value, const DictSV& /*options*/) {
-        std::ostringstream oss;
-        oss << "[BLE] WriteValue: Client wrote " << value.size() << " bytes. Data: [";
-        for (size_t i = 0; i < value.size(); ++i) {
-            oss << "0x" << std::hex << static_cast<int>(value[i]);
-            if (i < value.size() - 1) oss << ", ";
-        }
-        oss << std::dec << "]";
-        LOG_DEBUG(oss.str());
-        value_ = value;
-        notifyValueChanged();
-    };
-
-    auto startNotify = [this]() {
-        LOG_INFO("[BLE] StartNotify: Client subscribed to notifications");
-        const bool wasNotifying = notifying_.exchange(true);
-        if (!wasNotifying && charObj_) {
-            charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});
-        }
-        notifyValueChanged();
-    };
-
-    auto stopNotify = [this]() {
-        LOG_INFO("[BLE] StopNotify: Client unsubscribed from notifications");
-        const bool wasNotifying = notifying_.exchange(false);
-        if (wasNotifying && charObj_) {
-            charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropNotifying}});
-        }
-    };
-
-    auto getUuid = [this]() { return charUuid_; };
-    auto getService = [this]() { return servicePath_; };
-    auto getFlags = []() { return std::vector<std::string>{"read", "write", "notify"}; };
-    auto getValue = [this]() { return value_; };
-    auto getNotifying = [this]() { return notifying_.load(); };
-    auto getDescriptors = []() { return std::vector<sdbus::ObjectPath>{}; };
-
-    charObj_->addVTable(
-                sdbus::registerMethod(kMethodReadValue).implementedAs(readValue),
-                sdbus::registerMethod(kMethodWriteValue).implementedAs(writeValue),
-                sdbus::registerMethod(kMethodStartNotify).implementedAs(startNotify),
-                sdbus::registerMethod(kMethodStopNotify).implementedAs(stopNotify),
-                sdbus::registerProperty(kPropUUID).withGetter(getUuid),
-                sdbus::registerProperty(kPropService).withGetter(getService),
-                sdbus::registerProperty(kPropFlags).withGetter(getFlags),
-                sdbus::registerProperty(kPropValue).withGetter(getValue),
-                sdbus::registerProperty(kPropNotifying).withGetter(getNotifying),
-                sdbus::registerProperty(kPropDescriptors).withGetter(getDescriptors))
-        .forInterface(kIfaceGattChar);
-}
-
-void GattServer::exportAdvertisement()
-{
-    advObj_ = sdbus::createObject(*conn_, advPath_);
-
-    auto release = []() {
-        LOG_INFO("Advertisement released");
-    };
-
-    auto getType = []() { return std::string{"peripheral"}; };
-    auto getServiceUUIDs = [this]() { return std::vector<std::string>{serviceUuid_}; };
-    auto getLocalName = [this]() { return localName_; };
-    auto getDiscoverable = []() { return true; };
-
-    advObj_->addVTable(
-              sdbus::registerMethod(kMethodRelease).implementedAs(release),
-              sdbus::registerProperty(kPropType).withGetter(getType),
-              sdbus::registerProperty(kPropServiceUUIDs).withGetter(getServiceUUIDs),
-              sdbus::registerProperty(kPropLocalName).withGetter(getLocalName),
-              sdbus::registerProperty(kPropDiscoverable).withGetter(getDiscoverable))
-        .forInterface(kIfaceAdv);
 }
 
 void GattServer::ensureAdapterPoweredOn()
 {
-    if (!adapterProxy_) {
-        LOG_ERROR("Adapter proxy not initialized");
-        throw std::runtime_error("Adapter proxy not initialized");
-    }
-
+    if (!adapterProxy_) return;
     try {
         sdbus::Variant powered;
-        adapterProxy_->callMethod("Get")
-            .onInterface(kIfaceProps)
-            .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered})
-            .storeResultsTo(powered);
-
-        if (!(bool)powered)
-        {
-            LOG_INFO("Bluetooth adapter is off, powering on...");
-            adapterProxy_->callMethod("Set")
-                .onInterface(kIfaceProps)
-                .withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered}, sdbus::Variant(true))
-                .storeResultsTo();
-            LOG_INFO("Bluetooth adapter powered on successfully");
-        } else {
-            LOG_DEBUG("Bluetooth adapter is already powered on");
+        adapterProxy_->callMethod("Get").onInterface(kIfaceProps).withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered}).storeResultsTo(powered);
+        if (!(bool)powered) {
+             adapterProxy_->callMethod("Set").onInterface(kIfaceProps).withArguments(std::string{kIfaceAdapter}, std::string{kPropPowered}, sdbus::Variant(true)).storeResultsTo();
         }
-    } catch (const sdbus::Error& e) {
-        LOG_ERROR("Failed to check/set adapter power state: [", e.getName(), "] ", e.getMessage());
-        throw;
-    }
-}
-
-void GattServer::registerWithBlueZ()
-{
-    DictSV options;
-
-    adapterProxy_->callMethod(kMethodRegisterApp)
-        .onInterface(kIfaceGattMgr)
-        .withArguments(appPath_, options)
-        .storeResultsTo();
-
-    adapterProxy_->callMethod(kMethodRegisterAdv)
-        .onInterface(kIfaceAdvMgr)
-        .withArguments(advPath_, options)
-        .storeResultsTo();
+    } catch (...) {}
 }
 
 void GattServer::unregisterFromBlueZ()
 {
-    if (!adapterProxy_) {
-        LOG_DEBUG("unregisterFromBlueZ: adapterProxy_ is null, skipping");
-        return;
-    }
-
+    if (!adapterProxy_) return;
     try {
-        adapterProxy_->callMethod(kMethodUnregisterAdv)
-            .onInterface(kIfaceAdvMgr)
-            .withArguments(advPath_)
-            .storeResultsTo();
-        LOG_DEBUG("Advertisement unregistered successfully");
-    } catch (const sdbus::Error& e) {
-        LOG_WARNING("Failed to unregister advertisement: [", e.getName(), "] ", e.getMessage());
-    }
-
-    try {
-        adapterProxy_->callMethod(kMethodUnregisterApp)
-            .onInterface(kIfaceGattMgr)
-            .withArguments(appPath_)
-            .storeResultsTo();
-        LOG_DEBUG("GATT application unregistered successfully");
-    } catch (const sdbus::Error& e) {
-        LOG_WARNING("Failed to unregister GATT application: [", e.getName(), "] ", e.getMessage());
-    }
+        adapterProxy_->callMethod(kMethodUnregisterEndpoint).onInterface(kIfaceMedia).withArguments(endpointPath_).storeResultsTo();
+        adapterProxy_->callMethod(kMethodUnregisterAdv).onInterface(kIfaceAdvMgr).withArguments(advPath_).storeResultsTo();
+        adapterProxy_->callMethod(kMethodUnregisterApp).onInterface(kIfaceGattMgr).withArguments(appPath_).storeResultsTo();
+    } catch (...) {}
 }
 
 void GattServer::notifyValueChanged()
 {
-    if (!charObj_)
-        return;
-
-    try {
-        charObj_->emitPropertiesChangedSignal(kIfaceGattChar, {sdbus::PropertyName{kPropValue}});
-    } catch (const std::exception& e) {
-        LOG_WARNING("PropertiesChanged(Value) failed: ", e.what());
-    }
+    // Now handled inside TemperatureCharacteristic
 }

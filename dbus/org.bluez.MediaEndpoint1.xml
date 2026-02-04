@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node>
+    <interface name="org.bluez.MediaEndpoint1">
+        <method name="SetConfiguration">
+            <arg name="transport" type="o" direction="in"/>
+            <arg name="properties" type="a{sv}" direction="in"/>
+        </method>
+        <method name="SelectConfiguration">
+            <arg name="capabilities" type="ay" direction="in"/>
+            <arg name="configuration" type="ay" direction="out"/>
+        </method>
+        <method name="ClearConfiguration">
+            <arg name="transport" type="o" direction="in"/>
+        </method>
+        <method name="Release"/>
+    </interface>
+</node>

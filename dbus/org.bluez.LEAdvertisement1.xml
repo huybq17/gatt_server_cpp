@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<node>
+    <interface name="org.bluez.LEAdvertisement1">
+        <method name="Release"/>
+        <property name="Type" type="s" access="read"/>
+        <property name="ServiceUUIDs" type="as" access="read"/>
+        <property name="LocalName" type="s" access="read"/>
+        <!-- Note: SolicitUUIDs, ServiceData, etc.. can be added if needed -->
+        <!-- Discoverable is not strictly in standard LEAdvertisement1 spec but often used in practice or helpers -->
+        <!-- We will stick to standard properties exposed by the adaptor -->
+    </interface>
+</node>
